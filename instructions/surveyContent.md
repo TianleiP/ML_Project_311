@@ -1,3 +1,20 @@
+
+help me modify clean_survey_data.py, 
+such that, after finish processing the data as mentioned in the instructions, 
+
+for question 2 and 4, 
+1. calculate the median value amone the three groups, i. e sushi, shawarma, pizza.
+Result: 
+Q2: pizza 6.00, shawarma: 7.00, sushi: 5.00
+Q4: 6.00, 10.00, 13.00
+2. for all NULL values, assign the median value of that particular group to them
+
+for quesion 5, 
+for all NULL values, assign them a keyword "other"
+
+
+
+
 QUESTION 1. From a scale 1 to 5, how complex is it to make this food? (Where 1 is the most simple, and 5 is the most
  complex)
  1
