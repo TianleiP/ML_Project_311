@@ -105,4 +105,5 @@ QUESTION 7. When you think about this food item, who does it remind you of?
  A lot (hot)
  I will have some of this food item with my hot sauce
 
-Cleaning logic: processed into vectors of 5*1
+
+Cleaning logic: 1 for None, 5 for I will have some of this food item with my hot sauce
