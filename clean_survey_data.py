@@ -183,7 +183,13 @@ def clean_data():
     """Clean the survey data according to the logic in surveyContent.md."""
     # Input file
     input_file = 'data/cleaned_data_combined.csv'
-    output_file = 'data/cleaned_survey_data.csv'
+    
+    # Output directories
+    main_output_dir = 'data/improved_cleaned_data'
+    
+    # Create output directories if they don't exist
+    if not os.path.exists(main_output_dir):
+        os.makedirs(main_output_dir)
     
     # Read the CSV file
     print(f"Reading data from {input_file}...")
@@ -255,16 +261,76 @@ def clean_data():
     sauce_df = pd.DataFrame.from_records(sauce.tolist())
     cleaned_data = pd.concat([cleaned_data, sauce_df], axis=1)
     
-    # Save the cleaned data
-    print(f"Saving cleaned data to {output_file}...")
+    # Calculate group medians for Q2 (ingredients) and Q4 (price)
+    print("Calculating group medians for ingredients and price...")
+    group_medians = {}
+    for label in cleaned_data['Label'].unique():
+        group_data = cleaned_data[cleaned_data['Label'] == label]
+        group_medians[label] = {
+            'ingredients': group_data['ingredients'].median(),
+            'price': group_data['price'].median()
+        }
+        print(f"Group '{label}' medians - Ingredients: {group_medians[label]['ingredients']:.2f}, Price: {group_medians[label]['price']:.2f}")
+    
+    # Fill NULL values with group medians for Q2 and Q4
+    print("Filling NULL values with group medians for Q2 and Q4...")
+    for idx, row in cleaned_data.iterrows():
+        label = row['Label']
+        
+        # Fill ingredients
+        if pd.isna(row['ingredients']):
+            cleaned_data.at[idx, 'ingredients'] = group_medians[label]['ingredients']
+        
+        # Fill price
+        if pd.isna(row['price']):
+            cleaned_data.at[idx, 'price'] = group_medians[label]['price']
+    
+    # Fill NULL values in Q5 (movie) with "other"
+    print("Filling NULL values in movie with 'other'...")
+    cleaned_data['movie'] = cleaned_data['movie'].fillna("other")
+    
+    # Save the main cleaned data
+    output_file = os.path.join(main_output_dir, 'improved_survey_data.csv')
+    print(f"Saving improved cleaned data to {output_file}...")
     cleaned_data.to_csv(output_file, index=False)
     
-    print(f"Cleaning completed. Cleaned data shape: {cleaned_data.shape}")
-    print(f"Columns in cleaned data: {cleaned_data.columns.tolist()}")
+    # Extract each question to a separate file (same format as data/cleaned_data)
+    print("Extracting individual questions to separate files...")
+    
+    # Define the questions and their corresponding columns
+    questions = {
+        'Q1_complexity': ['id', 'complexity', 'Label'],
+        'Q2_ingredients': ['id', 'ingredients', 'Label'],
+        'Q3_settings': ['id', 'weekday_lunch', 'weekday_dinner', 'weekend_lunch', 
+                        'weekend_dinner', 'party', 'late_night', 'Label'],
+        'Q4_price': ['id', 'price', 'Label'],
+        'Q5_movie': ['id', 'movie', 'Label'],
+        'Q6_drinks': ['id'] + [col for col in cleaned_data.columns if col.startswith('drink_')] + ['Label'],
+        'Q7_who_reminds': ['id', 'parents', 'siblings', 'friends', 'teachers', 'strangers', 'Label'],
+        'Q8_hot_sauce': ['id', 'none', 'mild', 'medium', 'hot', 'with_sauce', 'Label']
+    }
+    
+    # Extract each question into a separate CSV file
+    for q_id, columns in questions.items():
+        # Check if all columns exist in the dataframe
+        if all(col in cleaned_data.columns for col in columns):
+            # Extract the columns
+            output_df = cleaned_data[columns].copy()
+            
+            # Save to CSV
+            output_file = os.path.join(main_output_dir, f'{q_id}.csv')
+            output_df.to_csv(output_file, index=False)
+            print(f"Extracted {q_id} to {output_file}")
+        else:
+            missing_cols = [col for col in columns if col not in cleaned_data.columns]
+            print(f"Warning: Some columns for {q_id} not found in the dataset: {missing_cols}")
+    
+    print(f"Cleaning completed. Improved data shape: {cleaned_data.shape}")
+    print(f"Columns in improved data: {cleaned_data.columns.tolist()}")
     
     # Count null values
     null_counts = cleaned_data.isnull().sum()
-    print("\nNull values per column:")
+    print("\nNull values per column (should be 0 for ingredients, price, and movie):")
     for column, count in null_counts[null_counts > 0].items():
         print(f"  {column}: {count} nulls ({count/len(cleaned_data)*100:.2f}%)")
     
