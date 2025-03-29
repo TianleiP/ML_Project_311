@@ -1,0 +1,488 @@
+import pandas as pd
+import numpy as np
+import os
+import re
+from collections import defaultdict, Counter
+from sklearn.naive_bayes import MultinomialNB
+
+
+def clean_complexity(value):
+    try:
+        value = float(value)
+        if 1 <= value <= 5:
+            return value
+    except:
+        pass
+    return np.nan
+
+def clean_ingredients(text):
+    if not isinstance(text, str):
+        return np.nan
+    numbers = re.findall(r'\d+', text)
+    if len(numbers) == 1:
+        return int(numbers[0])
+    elif len(numbers) == 2:
+        return (int(numbers[0]) + int(numbers[1])) / 2
+    else:
+        return np.nan
+
+def extract_settings(text):
+    settings = {
+        'weekday_lunch': 0,
+        'weekday_dinner': 0,
+        'weekend_lunch': 0,
+        'weekend_dinner': 0,
+        'party': 0,
+        'late_night': 0
+    }
+    if not isinstance(text, str):
+        return settings
+    
+    text_lower = text.lower()
+    if 'week day lunch' in text_lower:
+        settings['weekday_lunch'] = 1
+    if 'week day dinner' in text_lower:
+        settings['weekday_dinner'] = 1
+    if 'weekend lunch' in text_lower:
+        settings['weekend_lunch'] = 1
+    if 'weekend dinner' in text_lower:
+        settings['weekend_dinner'] = 1
+    if 'at a party' in text_lower:
+        settings['party'] = 1
+    if 'late night snack' in text_lower:
+        settings['late_night'] = 1
+    
+    return settings
+
+def clean_price(text):
+    if not isinstance(text, str):
+        return np.nan
+    numbers = re.findall(r'\d+(?:\.\d+)?', text)
+    if len(numbers) == 1:
+        return float(numbers[0])
+    elif len(numbers) == 2:
+        return (float(numbers[0]) + float(numbers[1])) / 2
+    else:
+        return np.nan
+
+def clean_movie(text):
+    if not isinstance(text, str):
+        return np.nan
+    words = text.split()
+    if len(words) <= 8:
+        return text
+    return np.nan
+
+def normalize_drink(drink):
+    if not isinstance(drink, str):
+        return 'other'
+    drink = drink.lower().strip()
+    
+    drink_groups = {
+        'coca cola': ['coke', 'coca cola', 'diet coke', 'cola', 'coke zero', 'pepsi', 'diet pepsi'],
+        'tea': ['tea', 'green tea', 'iced tea', 'ice tea', 'bubble tea', 'milk tea'],
+        'water': ['water', 'sparkling water', 'mineral water', 'soda water'],
+        'beer': ['beer', 'craft beer', 'cold beer'],
+        'juice': ['juice', 'orange juice', 'apple juice', 'fruit juice', 'lemon juice'],
+        'soda': ['soda', 'pop', 'soft drink', 'carbonated drink', 'sprite', 'fanta', '7up', 'mountain dew'],
+        'wine': ['wine', 'red wine', 'white wine', 'rose wine'],
+        'coffee': ['coffee', 'iced coffee', 'espresso', 'latte'],
+        'milk': ['milk', 'chocolate milk', 'dairy']
+    }
+    
+    for main_term, variants in drink_groups.items():
+        # If the entire string matches OR the variant appears in the string
+        if any(variant == drink or variant in drink.split() for variant in variants):
+            return main_term
+    return 'other'
+
+def extract_who_reminds(text):
+    reminds = {
+        'parents': 0,
+        'siblings': 0,
+        'friends': 0,
+        'teachers': 0,
+        'strangers': 0
+    }
+    if not isinstance(text, str):
+        return reminds
+    text_lower = text.lower()
+    if 'parents' in text_lower:
+        reminds['parents'] = 1
+    if 'siblings' in text_lower:
+        reminds['siblings'] = 1
+    if 'friends' in text_lower:
+        reminds['friends'] = 1
+    if 'teachers' in text_lower:
+        reminds['teachers'] = 1
+    if 'strangers' in text_lower:
+        reminds['strangers'] = 1
+    return reminds
+
+def clean_hot_sauce_numeric(text):
+    if not isinstance(text, str):
+        return np.nan
+    text_lower = text.lower()
+    if 'none' in text_lower:
+        return 1
+    elif 'little' in text_lower or 'mild' in text_lower:
+        return 2
+    elif 'moderate' in text_lower or 'medium' in text_lower:
+        return 3
+    elif 'lot' in text_lower or 'hot' in text_lower:
+        return 4
+    elif 'with my hot sauce' in text_lower:
+        return 5
+    else:
+        return np.nan
+
+def clean_text(text):
+    if not isinstance(text, str):
+        return ""
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+## main function
+def process_survey_data(
+    input_file,
+    output_dir,
+    is_training=True,
+    existing_vocabulary=None,
+    existing_group_medians=None
+):
+    """
+    Process survey data for training or inference.
+    
+    Parameters
+    ----------
+    input_file : str
+        Path to the CSV file containing the raw or partially-cleaned survey data.
+    output_dir : str
+        Path to the directory where all output CSV files will be saved.
+    is_training : bool, optional
+        If True, we expect to see 'Label' in the data, build the bag-of-words from scratch,
+        and compute group medians for numeric columns. 
+        If False (inference mode), we assume no Label or it's not used for group-based filling.
+        We'll use existing vocabulary + group medians if provided.
+    existing_vocabulary : list of str, optional
+        The vocabulary (list of unique words) from the training set, used only if is_training=False.
+        If None in training mode, we build from scratch. If None in inference mode, we can't do BOW properly.
+    existing_group_medians : dict, optional
+        Mappings used to fill numeric columns. Example structure:
+            {
+                'label_name' : {
+                    'ingredients': some_float,
+                    'price': some_float,
+                    'hot_sauce': some_float
+                },
+                ...
+            }
+        or potentially a single "global" median if you prefer. 
+        If None and is_training=False, we won't do group-based median filling 
+        (could do a fallback or skip).
+    """
+    # Create output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # 1) Read Data
+    print(f"Reading data from {input_file}...")
+    df = pd.read_csv(input_file, quotechar='"', escapechar='\\', on_bad_lines='skip', low_memory=False)
+    print(f"Original data shape: {df.shape}")
+
+    # 2) Create a new DataFrame for cleaned data
+    cleaned_data = pd.DataFrame()
+
+    # Check if 'Label' is present
+    has_label_column = ('Label' in df.columns)
+
+    # If training, we expect Label to be present
+    if is_training and not has_label_column:
+        raise ValueError("Training mode requires a 'Label' column in the input data.")
+
+    # If we're not training but the data does have Label, we'll ignore it or treat it as optional
+    # but it won't be used for group-based median if existing_group_medians is None.
+
+    # Keep 'id' if present
+    if 'id' in df.columns:
+        cleaned_data['id'] = df['id']
+    else:
+        # If ID is missing, create a synthetic ID
+        cleaned_data['id'] = range(len(df))
+
+    # Keep label if training (and if it exists)
+    if has_label_column:
+        cleaned_data['Label'] = df['Label']
+    else:
+        # Create a dummy label column or skip it
+        cleaned_data['Label'] = np.nan
+
+    # 3) Q1: complexity
+    if 'Q1: From a scale 1 to 5, how complex is it to make this food? (Where 1 is the most simple, and 5 is the most complex)' in df.columns:
+        cleaned_data['complexity'] = df['Q1: From a scale 1 to 5, how complex is it to make this food? (Where 1 is the most simple, and 5 is the most complex)'].apply(clean_complexity)
+    else:
+        cleaned_data['complexity'] = np.nan
+
+    # 4) Q2: ingredients
+    if 'Q2: How many ingredients would you expect this food item to contain?' in df.columns:
+        cleaned_data['ingredients'] = df['Q2: How many ingredients would you expect this food item to contain?'].apply(clean_ingredients)
+    else:
+        cleaned_data['ingredients'] = np.nan
+
+    # 5) Q3: settings
+    if 'Q3: In what setting would you expect this food to be served? Please check all that apply' in df.columns:
+        settings_series = df['Q3: In what setting would you expect this food to be served? Please check all that apply'].apply(extract_settings)
+        settings_df = pd.DataFrame.from_records(settings_series.tolist())
+    else:
+        # Create empty placeholders
+        settings_df = pd.DataFrame(columns=['weekday_lunch', 'weekday_dinner','weekend_lunch','weekend_dinner','party','late_night'])
+        for col in settings_df.columns:
+            settings_df[col] = 0
+
+    cleaned_data = pd.concat([cleaned_data, settings_df], axis=1)
+
+    # 6) Q4: price
+    if 'Q4: How much would you expect to pay for one serving of this food item?' in df.columns:
+        cleaned_data['price'] = df['Q4: How much would you expect to pay for one serving of this food item?'].apply(clean_price)
+    else:
+        cleaned_data['price'] = np.nan
+
+    # 7) Q5: movie
+    if 'Q5: What movie do you think of when thinking of this food item?' in df.columns:
+        cleaned_data['movie'] = df['Q5: What movie do you think of when thinking of this food item?'].apply(clean_movie)
+    else:
+        cleaned_data['movie'] = np.nan
+
+    # 8) Q6: drinks
+    if 'Q6: What drink would you pair with this food item?' in df.columns:
+        df['normalized_drink'] = df['Q6: What drink would you pair with this food item?'].apply(normalize_drink)
+        drink_counts = Counter(df['normalized_drink'].dropna())
+        # If training, pick top4
+        if is_training:
+            top_drinks = [drink for drink, _ in drink_counts.most_common(4)]
+        else:
+            # Could re-use a known set of top drinks from training, or define your own
+            # For simplicity, let's just pick top4 from the test data, but that might not align with training
+            top_drinks = [drink for drink, _ in drink_counts.most_common(4)]
+
+        for drink in top_drinks:
+            cleaned_data[f'drink_{drink}'] = (df['normalized_drink'] == drink).astype(int)
+        # "other" category
+        cleaned_data['drink_other'] = (~df['normalized_drink'].isin(top_drinks)).astype(int)
+    else:
+        # If missing column, create placeholders
+        cleaned_data['drink_other'] = 1  # everything is "other" if we can't detect anything
+
+    # 9) Q7: who reminds
+    if 'Q7: When you think about this food item, who does it remind you of?' in df.columns:
+        reminds_series = df['Q7: When you think about this food item, who does it remind you of?'].apply(extract_who_reminds)
+        reminds_df = pd.DataFrame.from_records(reminds_series.tolist())
+    else:
+        reminds_df = pd.DataFrame(columns=['parents','siblings','friends','teachers','strangers'])
+        for col in reminds_df.columns:
+            reminds_df[col] = 0
+
+    cleaned_data = pd.concat([cleaned_data, reminds_df], axis=1)
+
+    # 10) Q8: hot sauce
+    if 'Q8: How much hot sauce would you add to this food item?' in df.columns:
+        cleaned_data['hot_sauce'] = df['Q8: How much hot sauce would you add to this food item?'].apply(clean_hot_sauce_numeric)
+    else:
+        cleaned_data['hot_sauce'] = np.nan
+
+    # 11) Fill missing movie with 'other'
+    cleaned_data['movie'] = cleaned_data['movie'].fillna('other')
+
+    # 12) Impute missing numeric values
+    #     If training, compute group medians by label. If inference, use existing medians (if provided).
+    numeric_cols = ['ingredients', 'price', 'hot_sauce']
+    if is_training:
+        # Build new group medians from the training data
+        group_medians_dict = {}
+        for label in cleaned_data['Label'].unique():
+            group = cleaned_data[cleaned_data['Label'] == label]
+            group_medians_dict[label] = {
+                'ingredients': group['ingredients'].median(),
+                'price': group['price'].median(),
+                'hot_sauce': group['hot_sauce'].median()
+            }
+    else:
+        # We rely on existing_group_medians if you want to fill by label
+        group_medians_dict = existing_group_medians if existing_group_medians else {}
+
+    # Fill missing numeric values
+    def fill_numeric(row):
+        label = row['Label']
+        for col in numeric_cols:
+            if pd.isna(row[col]):
+                # If we have group-based medians & label is known
+                if label in group_medians_dict:
+                    row[col] = group_medians_dict[label][col]
+                else:
+                    # fallback: use overall median or skip
+                    # for simplicity, let's do an overall median in the entire dataset
+                    overall_median = cleaned_data[col].median()
+                    row[col] = overall_median
+        return row
+
+    cleaned_data = cleaned_data.apply(fill_numeric, axis=1)
+
+    # 13) Build or apply bag-of-words for the movie column
+    # If is_training, we build the vocabulary from scratch
+    # Otherwise, we use the existing vocabulary
+    if is_training:
+        # -- Build BOW from scratch
+        # 1) Clean text
+        cleaned_text = cleaned_data['movie'].apply(clean_text)
+        # 2) Tokenize
+        tokenized = cleaned_text.apply(lambda x: x.split())
+        # 3) Build vocabulary
+        vocab_set = set()
+        for tokens in tokenized:
+            vocab_set.update(tokens)
+        vocabulary = sorted(list(vocab_set))
+
+        # 4) Create doc-term matrix
+        bow_data = []
+        for tokens in tokenized:
+            word_counts = defaultdict(int)
+            for w in tokens:
+                word_counts[w] += 1
+            row_features = {}
+            for w, c in word_counts.items():
+                if w in vocabulary:
+                    # prefix col name with "movie_"
+                    row_features[f"movie_{w}"] = c
+            bow_data.append(row_features)
+        bow_df = pd.DataFrame(bow_data).fillna(0)
+
+    else:
+        # -- Use existing vocabulary
+        if existing_vocabulary is None:
+            raise ValueError("No vocabulary provided for inference mode. Please pass a `existing_vocabulary`.")
+        # 1) Clean text
+        cleaned_text = cleaned_data['movie'].apply(clean_text)
+        tokenized = cleaned_text.apply(lambda x: x.split())
+
+        bow_data = []
+        for tokens in tokenized:
+            word_counts = defaultdict(int)
+            for w in tokens:
+                word_counts[w] += 1
+            row_features = {}
+            for w, c in word_counts.items():
+                # only include words from the existing vocabulary
+                if w in existing_vocabulary:
+                    row_features[f"movie_{w}"] = c
+            bow_data.append(row_features)
+        bow_df = pd.DataFrame(bow_data).fillna(0)
+
+        # We’ll keep “vocabulary” as the same list passed in
+        vocabulary = existing_vocabulary
+    
+    # Merge bow_df into cleaned_data
+    # Make sure we align indexes
+    bow_df.reset_index(drop=True, inplace=True)
+    cleaned_data.reset_index(drop=True, inplace=True)
+
+    for col in bow_df.columns:
+        cleaned_data[col] = bow_df[col].values
+
+    # 14) Save outputs
+    #     a) Basic cleaned data (without bag-of-words might be optional)
+    basic_output_file = os.path.join(output_dir, 'cleaned_survey_data.csv')
+    cleaned_data_no_bow = cleaned_data.drop(columns=[c for c in cleaned_data.columns if c.startswith('movie_')])
+    cleaned_data_no_bow.to_csv(basic_output_file, index=False)
+    print(f"Saved basic cleaned data (no BOW) to: {basic_output_file}")
+
+    #     b) Final data with BOW
+    final_output_file = os.path.join(output_dir, 'final_data_with_bow.csv')
+    cleaned_data.to_csv(final_output_file, index=False)
+    print(f"Saved final data with BOW to: {final_output_file}")
+
+    #     c) Save vocabulary if training
+    if is_training:
+        vocab_df = pd.DataFrame({'word': vocabulary})
+        vocab_output_file = os.path.join(output_dir, 'Q5_movie_vocabulary.csv')
+        vocab_df.to_csv(vocab_output_file, index=False)
+        print(f"Saved vocabulary to: {vocab_output_file}")
+
+        # Also return the group medians if the user wants to re-use them in inference
+        return cleaned_data, vocabulary, group_medians_dict
+    else:
+        # In inference mode, just return the final data
+        return cleaned_data
+    
+if __name__ == "__main__":
+
+    # 1) Define paths
+    train_file = r"C:\Users\kevin\Desktop\311\ML_Project_311\data\cleaned_data_combined_modified.csv"
+    out_dir    = r"C:\Users\kevin\Desktop\311\ML_Project_311\data\training_outputs"
+
+    # 2) Process data in training mode
+    train_df, vocab_list, group_medians_dict = process_survey_data(
+        input_file=train_file,
+        output_dir=out_dir,
+        is_training=True
+    )
+
+    # 3) Prepare feature matrix X, target y
+    # Drop columns that are not features (id, Label, movie text)
+    drop_cols = ["id", "Label", "movie"]
+    feature_cols = [col for col in train_df.columns if col not in drop_cols]
+    X = train_df[feature_cols]
+    y = train_df["Label"]
+
+    print("Training features shape:", X.shape)
+    print("Training labels shape:", y.shape)
+
+    # 4) Fit a Multinomial Naive Bayes model
+    clf = MultinomialNB()
+    clf.fit(X, y)
+
+    # 5) Save model parameters to CSV
+
+    # (a) Priors => class_log_prior_
+    # Each entry in class_log_prior_ is the log of P(class)
+    priors_df = pd.DataFrame({
+        "label": clf.classes_,
+        "log_prior": clf.class_log_prior_
+    })
+    priors_out_path = os.path.join(out_dir, "naive_bayes_priors.csv")
+    priors_df.to_csv(priors_out_path, index=False)
+    print(f"Saved NB priors to {priors_out_path}")
+
+    # (b) Likelihoods => feature_log_prob_
+    # shape = (n_classes, n_features)
+    # We'll melt it into a long DataFrame with columns: label, feature_name, log_likelihood
+    likelihoods_list = []
+    for i, label in enumerate(clf.classes_):
+        for j, feat_name in enumerate(feature_cols):
+            likelihoods_list.append({
+                "label": label,
+                "feature_name": feat_name,
+                "log_likelihood": clf.feature_log_prob_[i, j]
+            })
+    likelihoods_df = pd.DataFrame(likelihoods_list)
+    likelihoods_out_path = os.path.join(out_dir, "naive_bayes_likelihoods.csv")
+    likelihoods_df.to_csv(likelihoods_out_path, index=False)
+    print(f"Saved NB likelihoods to {likelihoods_out_path}")
+
+
+    # (d) Save group_medians_dict in CSV form
+    # We'll create columns: label, ingredients_median, price_median, hot_sauce_median
+    gm_rows = []
+    for lbl, medians in group_medians_dict.items():
+        gm_rows.append({
+            "label": lbl,
+            "ingredients_median": medians['ingredients'],
+            "price_median": medians['price'],
+            "hot_sauce_median": medians['hot_sauce']
+        })
+    gm_df = pd.DataFrame(gm_rows)
+    gm_out_path = os.path.join(out_dir, "group_medians.csv")
+    gm_df.to_csv(gm_out_path, index=False)
+    print(f"Saved group medians to {gm_out_path}")
+
+    print("All done!")
