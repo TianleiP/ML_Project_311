@@ -6,7 +6,7 @@ from sklearn.metrics import classification_report
 from sklearn.naive_bayes import MultinomialNB
 
 
-df = pd.read_csv("/workspaces/ML_Project_311/data/final_combined_data/final_data_with_bow.csv")
+df = pd.read_csv("data/final_combined_data/final_data_with_bow.csv")
 
 
 label_encoder = LabelEncoder()
@@ -17,7 +17,7 @@ df = df.drop(columns=['id'])
 X = df.drop(columns=['Label'])
 y = df['Label']
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 model = MultinomialNB(alpha=1.0)
 model.fit(X_train, y_train)
