@@ -1,5 +1,6 @@
-#/training_code folder:
-random_forest_model.py: Train the random forest using sklearn, using data/final_combined_data/final_data_with_bow.csv. It saves the model as random_forest_model.joblib， which is not included in the folder at the moment, but it will be generated after you run random_forest_model.py.
+# /training_code folder:
+## random_forest_model.py:
+Train the random forest using sklearn, using data/final_combined_data/final_data_with_bow.csv. It saves the model as random_forest_model.joblib， which is not included in the folder at the moment, but it will be generated after you run random_forest_model.py.
 You can try to run it but this is what you will see
 
 Loading data...
@@ -24,10 +25,11 @@ Classification Report:
    macro avg       0.89      0.89      0.89       494
 weighted avg       0.89      0.89      0.89       494
 
-random_forest_extractor.py: loads and saves the model from random_forest_model.joblib by extracting all parameters, then converts it to JSON format and stores it in rf_params.json. The .json file is currently under the /code folder, which is necessary for prep.py to run. 
+## random_forest_extractor.py: 
+loads and saves the model from random_forest_model.joblib by extracting all parameters, then converts it to JSON format and stores it in rf_params.json. The .json file is currently under the /code folder, which is necessary for prep.py to run. 
 
 
-/code folder:
+# /code folder:
 
 Contains all the code needed for pred.py to run correctly on markus.
 Locally, we need a raw file for pred.py to run.
