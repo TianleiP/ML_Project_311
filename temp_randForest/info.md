@@ -41,7 +41,7 @@ contains the parameters of the random forest trained by random_forest_model.py, 
 ## feature_name.csv:
 Contains all predictor variables built from the training set. Because of the bag-of-words feature, using different input files with different movie titles will result in different counts of predictor variables. This is a big problem because, if we process the train file and the test file separately, there will be a mismatch in the predictor variables' index between the two processed files, which makes the decision trees choose the wrong variable when doing prediction on the processed test file.
 
-Thus, all the predictor variables generated from the train file are stored in a separate CSV file, and prep.py processes the test file according to these predictors. 
+Thus, all the predictor variables generated from the train file are stored in a separate CSV file, and pred.py processes the test file according to these predictors. 
 For any test file, unknown words will be ignored (not included as features), and missing features are filled with zeros. Thus, no matter what the test file is, the same number of predictor variables(as well as the index) is guaranteed. 
 
 pred.py directly relies on this file when processing the test file.
