@@ -1,4 +1,4 @@
-**/training_code folder:
+#/training_code folder:
 random_forest_model.py: Train the random forest using sklearn, using data/final_combined_data/final_data_with_bow.csv. It saves the model as random_forest_model.joblib， which is not included in the folder at the moment, but it will be generated after you run random_forest_model.py.
 You can try to run it but this is what you will see
 
