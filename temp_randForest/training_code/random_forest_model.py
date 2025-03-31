@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, accuracy_score
 import joblib
-
+ 
 # Load the dataset
 print("Loading data...")
 df = pd.read_csv("data/final_combined_data/final_data_with_bow.csv")
@@ -30,20 +30,34 @@ print(f"Test set size: {X_test.shape[0]} samples")
 
 # Train the Random Forest model
 print("\nTraining Random Forest model...")
+param_grid = {
+    'n_estimators': [50, 100, 150],
+    'max_depth': [None, 10, 20, 30],
+    'min_samples_split': [2, 5, 8],
+    'min_samples_leaf': [1, 2, 3],
+    'max_features': ['sqrt', 'log2']
+}
+
 model = RandomForestClassifier(
-    n_estimators=100,     # Number of trees in the forest
-    max_depth=None,       # Maximum depth of trees (None means unlimited)
-    min_samples_split=2,  # Minimum samples required to split a node
-    min_samples_leaf=1,   # Minimum samples required at a leaf node
-    max_features='sqrt',  # Number of features to consider for best split
     bootstrap=True,       # Use bootstrap samples when building trees
     n_jobs=-1,            # Use all CPU cores
     random_state=42       # For reproducibility
 )
-model.fit(X_train, y_train)
+grid_search = GridSearchCV(estimator=model, 
+                         param_grid=param_grid,
+                         cv=5,
+                         n_jobs=-1)
+
+grid_search.fit(X_train, y_train)
+
+print("Best parameters:", grid_search.best_params_)
+print("Best score:", grid_search.best_score_)
+
+best_model = grid_search.best_estimator_
+best_model.fit(X_train, y_train)
 
 # Make predictions
-y_pred = model.predict(X_test)
+y_pred = best_model.predict(X_test)
 
 # Calculate accuracy
 accuracy = accuracy_score(y_test, y_pred)
@@ -54,7 +68,7 @@ print("\nClassification Report:")
 print(classification_report(y_test, y_pred, target_names=label_encoder.classes_))
 
 # Feature importance
-feature_importance = model.feature_importances_
+feature_importance = best_model.feature_importances_
 feature_names = X.columns
 top_features = sorted(zip(feature_importance, feature_names), reverse=True)[:10]
 print("\nTop 10 important features:")
