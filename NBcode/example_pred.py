@@ -23,7 +23,7 @@ import numpy as np
 import os
 import re
 from collections import defaultdict, Counter
-
+from sklearn.metrics import classification_report
 
 
 
@@ -319,7 +319,7 @@ def load_nb_params():
             'Sushi':    { ... }
         }
     """
-    priors_df = pd.read_csv("naive_bayes_priors.csv")  
+    priors_df = pd.read_csv("NBcode/naive_bayes_priors.csv")  
     # Expecting columns: [label, log_prior]
     priors_dict = {}
     for _, row in priors_df.iterrows():
@@ -328,7 +328,7 @@ def load_nb_params():
     
     # 2) Read likelihoods
     # Expecting columns: [label, feature_name, log_likelihood]
-    likelihoods_df = pd.read_csv("naive_bayes_likelihoods.csv")
+    likelihoods_df = pd.read_csv("NBcode/naive_bayes_likelihoods.csv")
     likelihoods_dict = {}
     for _, row in likelihoods_df.iterrows():
         label = str(row["label"])
@@ -386,7 +386,7 @@ def predict_all(filename):
     # you do not need to use the "csv" package like we are using
     # (e.g. you may use numpy, pandas, etc)
     
-    vocab_df = pd.read_csv("vocabulary.csv")  # same folder
+    vocab_df = pd.read_csv("NBcode/vocabulary.csv")  # same folder
     vocab_list = vocab_df["word"].tolist()
     
     test_df = process_survey_data_for_inference(
@@ -443,6 +443,11 @@ def compute_accuracy(csv_file):
     # Accuracy = (# correct) / (total)
     accuracy = correct.mean()
 
+    y_test = df["label_code"]
+    y_pred = preds_series.map(label_map)
+    
+    print(classification_report(y_test, y_pred, target_names=['Pizza', 'Shawarma', 'Sushi']))
+
     return accuracy
 
 # ------------------------------
@@ -450,7 +455,8 @@ def compute_accuracy(csv_file):
 # ------------------------------
 if __name__ == "__main__":
     # 1) Define the path
-    csv_file = r"C:\Users\kevin\Desktop\311\ML_Project_311\data\cleaned_data_combined_modified.csv"
+    # csv_file = r"C:\Users\kevin\Desktop\311\ML_Project_311\data\cleaned_data_combined_modified.csv"
+    csv_file = "data/cleaned_data_combined_modified.csv"
     
     # 2) Compute accuracy
     acc = compute_accuracy(csv_file)
